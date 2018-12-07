@@ -21,6 +21,7 @@ my $language = "en";
 my $is_cjk = 0;
 my $QUIET = 0;
 my $HELP = 0;
+my $HARDSPLIT = 0;
 
 while (@ARGV) {
 	$_ = shift;
@@ -28,16 +29,18 @@ while (@ARGV) {
 	/^-q$/ && ($QUIET = 1, next);
 	/^-h$/ && ($HELP = 1, next);
 	/^-b$/ && ($|++, next); # no output buffering
+	/^-s$/ && ($HARDSPLIT = shift, next);
 }
 
 if ($HELP) {
-	print "Usage ./split-sentences.perl (-l [en|de|...]) [-q] [-b] < textfile > splitfile\n";
+	print "Usage ./split-sentences.perl (-l [en|de|...]) [-q] [-b] [-s N] < textfile > splitfile\n";
 	print "-q: quiet mode\n";
 	print "-b: no output buffering (for use in bidirectional pipes)\n";
+	print "-s N: split sentences if longer than N\n";
 	exit;
 }
 if (!$QUIET) {
-	print STDERR "Sentence Splitter v3\n";
+	print STDERR "Sentence Splitter v3.1\n";
 	print STDERR "Language: $language\n";
 }
 
@@ -82,8 +85,18 @@ while (<STDIN>) {
 		$text = "";
 	}
 	else {
-		# Append the text, with a space.
-		$text .= $_. " ";
+        # We don't want to add lines if the number of tokens would exceed the limit
+        if ($HARDSPLIT) {
+            # Count tokens in the text with the next line appended
+            my $count = () = ($text . $_ . " ") =~ /\S+/g;
+            # Process the block if the limit is exceeded
+            if($count > $HARDSPLIT) {
+                &do_it_for($text, "");
+                $text = "";
+            }
+        }
+		# Append the text, with a space
+		$text .= $_ . " ";
 	}
 }
 # Do the leftover text.
@@ -92,7 +105,19 @@ while (<STDIN>) {
 
 sub do_it_for {
 	my($text,$markup) = @_;
-	print &preprocess($text) if $text;
+	if ($text) {
+        my $output = &preprocess($text);
+        # We want to split lines if the number of tokens exceeds the limit
+        if ($HARDSPLIT) {
+            # Add a new line after every $HARDSPLIT tokens
+            $output =~ s/((:?\S+\s+){$HARDSPLIT})/$1\n/g;
+            # Remove trailing spaces
+            $output =~ s/\s+\n/\n/g;
+            # Remove trailing new lines
+            #$output =~ s/\n$//g;
+        }
+        print $output;
+    }
 	print "$markup\n" if ($markup =~ /^<.+>$/);
 	#chop($text);
 }
